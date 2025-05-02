@@ -138,7 +138,7 @@
         };
 
         // Scaling factor for time to make orbits visible
-        const timeScale = 0.1; // Adjust this to speed up/slow down simulation
+        let timeScale = 0.1; // Adjust this to speed up/slow down simulation
 
         // 1. Scene
         const scene = new THREE.Scene();
@@ -187,19 +187,29 @@
 
         // --- Create Galaxies for Background ---
         function createGalaxy(params = {}) {
+            // Generate more vibrant base colors
+            const getRandomColor = () => {
+                // Random vibrant color
+                const hue = Math.random() * 360;
+                const saturation = 0.7 + Math.random() * 0.3; // 70-100% saturation for vibrance
+                const lightness = 0.5 + Math.random() * 0.3; // 50-80% lightness for brightness
+                return new THREE.Color().setHSL(hue/360, saturation, lightness);
+            };
+
             const options = {
                 position: new THREE.Vector3(
-                    (Math.random() - 0.5) * 1200,
-                    (Math.random() - 0.5) * 1200,
-                    (Math.random() - 0.5) * 1200
+                    (Math.random() - 0.5) * 1500,
+                    (Math.random() - 0.5) * 1500,
+                    (Math.random() - 0.5) * 1500
                 ),
-                size: 50 + Math.random() * 100,
-                particles: 5000 + Math.random() * 5000,
-                color: new THREE.Color(
-                    0.5 + Math.random() * 0.5,
-                    0.5 + Math.random() * 0.5,
-                    0.5 + Math.random() * 0.5
-                ),
+                size: 80 + Math.random() * 150, // Bigger galaxies
+                particles: 8000 + Math.random() * 7000, // More particles
+                branches: 2 + Math.floor(Math.random() * 5), // Random number of arms (2-6)
+                spin: 0.5 + Math.random() * 1.5, // Random spin factor
+                randomness: 0.1 + Math.random() * 0.2, // Random deviation from perfect spiral
+                randomnessPower: 2 + Math.random() * 2, // How much randomness increases toward edges
+                insideColor: getRandomColor(),
+                outsideColor: getRandomColor(),
                 ...params
             };
             
@@ -207,49 +217,59 @@
             const particles = Math.floor(options.particles);
             const positions = new Float32Array(particles * 3);
             const colors = new Float32Array(particles * 3);
-            
-            const insideColor = options.color;
-            const outsideColor = new THREE.Color(0.5, 0.5, 0.8);
+            const sizes = new Float32Array(particles);
             
             for (let i = 0; i < particles; i++) {
-                // Position
+                // Position calculation
                 const radius = Math.random() * options.size;
-                const spinAngle = radius * 0.5;
-                const branchAngle = (i % 3) * Math.PI * 2 / 3;
+                const spinAngle = radius * options.spin;
+                const branchAngle = (i % options.branches) * Math.PI * 2 / options.branches;
                 
-                const x = Math.cos(branchAngle + spinAngle) * radius;
-                const y = (Math.random() - 0.5) * radius * 0.2;
-                const z = Math.sin(branchAngle + spinAngle) * radius;
+                // Add randomness to position
+                const randomX = Math.pow(Math.random(), options.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * options.randomness * radius;
+                const randomY = Math.pow(Math.random(), options.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * options.randomness * radius;
+                const randomZ = Math.pow(Math.random(), options.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * options.randomness * radius;
+                
+                // Calculate position on spiral arm
+                const x = Math.cos(branchAngle + spinAngle) * radius + randomX;
+                const y = randomY; // Flat galaxy with some thickness from randomness
+                const z = Math.sin(branchAngle + spinAngle) * radius + randomZ;
                 
                 positions[i * 3] = x;
                 positions[i * 3 + 1] = y;
                 positions[i * 3 + 2] = z;
                 
-                // Color
-                const mixedColor = insideColor.clone();
-                mixedColor.lerp(outsideColor, radius / options.size);
+                // Color gradient from inside to outside
+                const mixedColor = options.insideColor.clone();
+                mixedColor.lerp(options.outsideColor, radius / options.size);
                 
                 colors[i * 3] = mixedColor.r;
                 colors[i * 3 + 1] = mixedColor.g;
                 colors[i * 3 + 2] = mixedColor.b;
+                
+                // Varying particle sizes (smaller near center, larger on edges)
+                sizes[i] = (0.2 + Math.random() * 0.8) * (0.5 + radius / options.size * 0.5);
             }
             
             const geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
             
+            // Using a custom shader material for more control over particle rendering
             const material = new THREE.PointsMaterial({
-                size: 0.4,
+                size: 0.7,
                 sizeAttenuation: true,
                 depthWrite: false,
                 blending: THREE.AdditiveBlending,
-                vertexColors: true
+                vertexColors: true,
+                transparent: true
             });
             
             const galaxy = new THREE.Points(geometry, material);
             galaxy.position.copy(options.position);
             
-            // Add random rotation
+            // Add random rotation to the entire galaxy
             galaxy.rotation.x = Math.random() * Math.PI;
             galaxy.rotation.y = Math.random() * Math.PI;
             galaxy.rotation.z = Math.random() * Math.PI;
@@ -257,8 +277,8 @@
             return galaxy;
         }
         
-        // Add several galaxies to the scene
-        for (let i = 0; i < 5; i++) {
+        // Add several galaxies with varying properties to the scene
+        for (let i = 0; i < 8; i++) { // Increase number of galaxies from 5 to 8
             scene.add(createGalaxy());
         }
 
@@ -476,6 +496,10 @@ animate(); // Start the loop here, after everything is set up
 // Time slider control
 const timeSlider = document.getElementById('timeSlider');
 const timeValue = document.getElementById('timeValue');
+
+// Set initial slider value to match the timeScale variable
+timeSlider.value = timeScale * 50;
+timeValue.textContent = `Current: ${timeScale.toFixed(2)}`;
 
 timeSlider.addEventListener('input', function() {
     // Convert slider value (0-100) to a useful time scale (0-2)
