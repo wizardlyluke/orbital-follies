@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbital Follies</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
+        canvas { display: block; } /* Prevent scrollbars */
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            border-radius: 5px;
+            pointer-events: none; /* Allow clicks to pass through */
+            z-index: 100;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 100;
+        }
+        #timeSlider {
+            width: 300px;
+            margin: 10px 0;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+        .slider-label {
+            margin: 0 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        Orbital Follies<br>
+        WASD/Arrow Keys: Move Camera | Mouse: Orbit | Scroll: Zoom
+    </div>
+    <div id="controls">
+        <div>Time Scale Control</div>
+        <div class="slider-container">
+            <span class="slider-label">Slow</span>
+            <input type="range" id="timeSlider" min="0" max="100" value="10" step="1">
+            <span class="slider-label">Fast</span>
+        </div>
+        <div id="timeValue">Current: 0.1</div>
+    </div>
+    <!-- Three.js library -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- Application script -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Approximate data (scaled for visualization)
+        // Units: Radius (arbitrary), Distance (arbitrary), Period (relative to Earth year)
+        const celestialBodiesData = {
+            sun: { name: 'Sun', radius: 5, color: 0xFFFF00 /* texture: 'textures/sun.jpg' */ },
+            mercury: { name: 'Mercury', radius: 0.4, distance: 10, period: 0.24, color: 0x8C8C8C /* texture: 'textures/mercury.jpg' */ },
+            venus: { name: 'Venus', radius: 0.9, distance: 15, period: 0.62, color: 0xE6E6FA /* texture: 'textures/venus.jpg' */ },
+            earth: {
+                name: 'Earth', radius: 1, distance: 20, period: 1, color: 0x4682B4 /* texture: 'textures/earth.jpg' */,
+                moons: [
+                    { name: 'Moon', radius: 0.27, distance: 2, period: 0.074, color: 0xD3D3D3 /* texture: 'textures/moon.jpg' */ }
+                ]
+            },
+            mars: {
+                name: 'Mars', radius: 0.5, distance: 28, period: 1.88, color: 0xFF4500 /* texture: 'textures/mars.jpg' */,
+                moons: [
+                    { name: 'Phobos', radius: 0.01, distance: 1, period: 0.002, color: 0x808080 },
+                    { name: 'Deimos', radius: 0.006, distance: 1.5, period: 0.003, color: 0x808080 }
+                ]
+            },
+            jupiter: {
+                name: 'Jupiter', radius: 3.5, distance: 45, period: 11.86, color: 0xFFD700 /* texture: 'textures/jupiter.jpg' */,
+                moons: [
+                    { name: 'Io', radius: 0.36, distance: 5, period: 0.004, color: 0xFFFFE0 },
+                    { name: 'Europa', radius: 0.31, distance: 6, period: 0.009, color: 0xF5F5DC },
+                    { name: 'Ganymede', radius: 0.52, distance: 7.5, period: 0.019, color: 0xA0522D },
+                    { name: 'Callisto', radius: 0.48, distance: 9, period: 0.045, color: 0x696969 }
+                ]
+            },
+            saturn: {
+                name: 'Saturn', radius: 3, distance: 65, period: 29.46, color: 0xF0E68C /* texture: 'textures/saturn.jpg' */,
+                moons: [
+                    { name: 'Titan', radius: 0.51, distance: 5, period: 0.043, color: 0xFFA500 }
+                    // Add other major moons if desired (Rhea, Iapetus, Dione, Tethys)
+                ],
+                rings: { innerRadius: 3.5, outerRadius: 6, color: 0xAAAAAA /* texture: 'textures/saturn_ring.png' */ }
+            },
+            uranus: {
+                name: 'Uranus', radius: 2, distance: 85, period: 84.01, color: 0xAFEEEE /* texture: 'textures/uranus.jpg' */,
+                moons: [
+                    { name: 'Titania', radius: 0.15, distance: 3, period: 0.023, color: 0xD3D3D3 }
+                    // Add other major moons if desired (Oberon, Umbriel, Ariel, Miranda)
+                ],
+                 rings: { innerRadius: 2.5, outerRadius: 3, color: 0x999999 } // Simplified rings
+            },
+            neptune: {
+                name: 'Neptune', radius: 1.9, distance: 100, period: 164.8, color: 0x4169E1 /* texture: 'textures/neptune.jpg' */,
+                moons: [
+                    { name: 'Triton', radius: 0.27, distance: 3.5, period: 0.016, color: 0xFFE4B5 }
+                ]
+            },
+            pluto: { name: 'Pluto', radius: 0.18, distance: 115, period: 248, color: 0xF5DEB3 /* texture: 'textures/pluto.jpg' */,
+                moons: [
+                     { name: 'Charon', radius: 0.09, distance: 0.8, period: 0.017, color: 0x8B4513 }
+                ]
+             }
+        };
+
+        // Scaling factor for time to make orbits visible
+        const timeScale = 0.1; // Adjust this to speed up/slow down simulation
+
+        // 1. Scene
+        const scene = new THREE.Scene();
+
+        // --- Lighting ---
+        // Ambient light to softly illuminate the scene
+        const ambientLight = new THREE.AmbientLight(0x404040, 1.5); // Increased intensity slightly
+        scene.add(ambientLight);
+
+        // Point light originating from the Sun
+        const pointLight = new THREE.PointLight(0xFFFFFF, 500, 500); // color, intensity, distance. Increased intensity significantly
+        // Since the sun mesh is at (0,0,0), the light should also be there
+        scene.add(pointLight);
+
+        // --- Starfield Background ---
+        function createStarfield(count = 10000) {
+            const vertices = [];
+            for (let i = 0; i < count; i++) {
+                // Create stars in a large sphere around the scene
+                const radius = 800;
+                const theta = 2 * Math.PI * Math.random();
+                const phi = Math.acos(2 * Math.random() - 1);
+                
+                const x = radius * Math.sin(phi) * Math.cos(theta);
+                const y = radius * Math.sin(phi) * Math.sin(theta);
+                const z = radius * Math.cos(phi);
+                
+                vertices.push(x, y, z);
+            }
+            
+            const starGeometry = new THREE.BufferGeometry();
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xFFFFFF,
+                size: 0.7,
+                sizeAttenuation: true
+            });
+            
+            const starfield = new THREE.Points(starGeometry, starMaterial);
+            return starfield;
+        }
+        
+        // Add starfield to scene
+        scene.add(createStarfield());
+
+        // --- Create Galaxies for Background ---
+        function createGalaxy(params = {}) {
+            const options = {
+                position: new THREE.Vector3(
+                    (Math.random() - 0.5) * 1200,
+                    (Math.random() - 0.5) * 1200,
+                    (Math.random() - 0.5) * 1200
+                ),
+                size: 50 + Math.random() * 100,
+                particles: 5000 + Math.random() * 5000,
+                color: new THREE.Color(
+                    0.5 + Math.random() * 0.5,
+                    0.5 + Math.random() * 0.5,
+                    0.5 + Math.random() * 0.5
+                ),
+                ...params
+            };
+            
+            // Create galaxy geometry
+            const particles = Math.floor(options.particles);
+            const positions = new Float32Array(particles * 3);
+            const colors = new Float32Array(particles * 3);
+            
+            const insideColor = options.color;
+            const outsideColor = new THREE.Color(0.5, 0.5, 0.8);
+            
+            for (let i = 0; i < particles; i++) {
+                // Position
+                const radius = Math.random() * options.size;
+                const spinAngle = radius * 0.5;
+                const branchAngle = (i % 3) * Math.PI * 2 / 3;
+                
+                const x = Math.cos(branchAngle + spinAngle) * radius;
+                const y = (Math.random() - 0.5) * radius * 0.2;
+                const z = Math.sin(branchAngle + spinAngle) * radius;
+                
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+                
+                // Color
+                const mixedColor = insideColor.clone();
+                mixedColor.lerp(outsideColor, radius / options.size);
+                
+                colors[i * 3] = mixedColor.r;
+                colors[i * 3 + 1] = mixedColor.g;
+                colors[i * 3 + 2] = mixedColor.b;
+            }
+            
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const material = new THREE.PointsMaterial({
+                size: 0.4,
+                sizeAttenuation: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                vertexColors: true
+            });
+            
+            const galaxy = new THREE.Points(geometry, material);
+            galaxy.position.copy(options.position);
+            
+            // Add random rotation
+            galaxy.rotation.x = Math.random() * Math.PI;
+            galaxy.rotation.y = Math.random() * Math.PI;
+            galaxy.rotation.z = Math.random() * Math.PI;
+            
+            return galaxy;
+        }
+        
+        // Add several galaxies to the scene
+        for (let i = 0; i < 5; i++) {
+            scene.add(createGalaxy());
+        }
+
+        // 2. Camera
+        const camera = new THREE.PerspectiveCamera(
+            75, // Field of view
+            window.innerWidth / window.innerHeight, // Aspect ratio
+            0.1, // Near clipping plane
+            1000 // Far clipping plane
+        );
+        camera.position.set(0, 75, 120); // Position camera to see more of the system
+
+        // 3. Renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight); // Set size to window size
+        document.body.appendChild(renderer.domElement); // Add canvas to the DOM
+
+        // --- Controls ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Optional: adds inertia to camera movement
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false; // Optional: restrict panning to horizontal plane
+        controls.minDistance = 5;   // Optional: prevent zooming too close
+        controls.maxDistance = 500; // Optional: prevent zooming too far
+        controls.target.set(0, 0, 0); // Ensure controls focus on the center (sun)
+        controls.update(); // Initialize controls state
+
+// Updated Helper function to create celestial body mesh with Standard Material
+function createCelestialBody(data) {
+    const geometry = new THREE.SphereGeometry(data.radius, 32, 32);
+    let material;
+    if (data.name === 'Sun') {
+        // Sun should glow, use BasicMaterial
+        material = new THREE.MeshBasicMaterial({ color: data.color });
+        // Or potentially use an emissive StandardMaterial if textures are added later
+        // material = new THREE.MeshStandardMaterial({ emissive: data.color, emissiveIntensity: 1 });
+    } else {
+        // Planets and moons react to light
+        material = new THREE.MeshStandardMaterial({
+            color: data.color,
+            roughness: 0.9, // Less shiny
+            metalness: 0.1
+        });
+    }
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = data.name;
+    return mesh;
+}
+
+// Updated Helper function for rings to use Standard Material
+function createRing(data) {
+    const geometry = new THREE.RingGeometry(data.innerRadius, data.outerRadius, 64);
+    const material = new THREE.MeshStandardMaterial({ // Changed to StandardMaterial
+        color: data.color,
+        side: THREE.DoubleSide,
+        roughness: 0.9,
+        metalness: 0.1,
+        // opacity: 0.7, // Requires transparent: true
+        // transparent: true
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = data.name + " Ring";
+    mesh.rotation.x = Math.PI / 2;
+    return mesh;
+}
+
+// --- Create Solar System Objects ---
+const solarSystemObjects = {
+    sun: null,
+    planets: [], // Will store { pivot: Object3D, mesh: Mesh, data: object, moons: [{ pivot: Object3D, mesh: Mesh, data: object }] }
+};
+
+// 1. Create Sun
+solarSystemObjects.sun = createCelestialBody(celestialBodiesData.sun);
+scene.add(solarSystemObjects.sun);
+
+// 2. Create Planets and Moons
+for (const planetKey in celestialBodiesData) {
+    if (planetKey === 'sun') continue; // Skip sun, already created
+
+    const planetData = celestialBodiesData[planetKey];
+
+    // Create planet orbit pivot (orbits around the sun at 0,0,0)
+    const planetOrbitPivot = new THREE.Object3D();
+    scene.add(planetOrbitPivot);
+
+    // Create planet mesh
+    const planetMesh = createCelestialBody(planetData);
+    planetMesh.position.x = planetData.distance; // Position relative to pivot
+    planetOrbitPivot.add(planetMesh); // Add planet to its orbit pivot
+
+    const planetInfo = {
+        pivot: planetOrbitPivot,
+        mesh: planetMesh,
+        data: planetData,
+        moons: []
+    };
+
+     // Add Rings if they exist
+    if (planetData.rings) {
+        const ringMesh = createRing(planetData.rings);
+        // Tilt rings slightly (e.g., Saturn) - adjust as needed
+        if (planetData.name === 'Saturn') {
+             ringMesh.rotation.y = 0.1; // Example tilt
+        } else if (planetData.name === 'Uranus') {
+             // Uranus has significant axial tilt, often depicted with vertical rings
+             // Keep rings in XZ plane relative to planet for simplicity now
+             // A more accurate model would tilt the planet's entire system
+             ringMesh.rotation.y = Math.PI / 2;
+        }
+        planetMesh.add(ringMesh); // Add rings as child of the planet mesh
+    }
+
+
+    // Create Moons for this planet
+    if (planetData.moons) {
+        planetData.moons.forEach(moonData => {
+            // Create moon orbit pivot (orbits around the planet)
+            const moonOrbitPivot = new THREE.Object3D();
+            planetMesh.add(moonOrbitPivot); // Add moon pivot to the PLANET MESH
+
+            // Create moon mesh
+            const moonMesh = createCelestialBody(moonData);
+            moonMesh.position.x = moonData.distance; // Position relative to moon pivot
+            moonOrbitPivot.add(moonMesh); // Add moon mesh to its pivot
+
+            planetInfo.moons.push({
+                pivot: moonOrbitPivot,
+                mesh: moonMesh,
+                data: moonData
+            });
+        });
+    }
+
+    solarSystemObjects.planets.push(planetInfo);
+}
+
+console.log("Solar system objects created:", solarSystemObjects); // For debugging
+
+// --- Add Orbit Paths ---
+function createOrbitPath(radius, segments = 128) {
+    const geometry = new THREE.BufferGeometry().setFromPoints(
+        new THREE.Path().absarc(0, 0, radius, 0, Math.PI * 2, true).getPoints(segments)
+    );
+    const material = new THREE.LineBasicMaterial({ 
+        color: 0x444444,
+        transparent: true,
+        opacity: 0.3,
+        linewidth: 1 
+    });
+    return new THREE.Line(geometry, material);
+}
+
+// Add orbit paths for planets
+solarSystemObjects.planets.forEach(planetInfo => {
+    const orbitPath = createOrbitPath(planetInfo.data.distance);
+    // Rotate to match the XZ plane
+    orbitPath.rotation.x = Math.PI / 2;
+    scene.add(orbitPath);
+});
+
+
+// Clock for animations
+const clock = new THREE.Clock();
+
+
+// 4. Animation Loop
+function animate() {
+    requestAnimationFrame(animate);
+    const elapsedTime = clock.getElapsedTime();
+
+    // Animate planets around the sun
+    solarSystemObjects.planets.forEach(planetInfo => {
+        if (planetInfo.data.period > 0) { // Avoid division by zero if period is missing
+            const angle = (elapsedTime * timeScale / planetInfo.data.period) * 2 * Math.PI;
+            planetInfo.pivot.rotation.y = angle;
+        }
+
+        // Animate moons around their planet
+        planetInfo.moons.forEach(moonInfo => {
+            if (moonInfo.data.period > 0) {
+                const moonAngle = (elapsedTime * timeScale / moonInfo.data.period) * 2 * Math.PI * 10; // Moons orbit faster relative to planets typically, scale up
+                moonInfo.pivot.rotation.y = moonAngle;
+            }
+            // Optional: Add moon self-rotation
+            moonInfo.mesh.rotation.y += 0.01;
+        });
+
+        // Add planet self-rotation (axial spin)
+        planetInfo.mesh.rotation.y += 0.005;
+    });
+
+    // Add Sun self-rotation
+    solarSystemObjects.sun.rotation.y += 0.001;
+
+    controls.update(); // Update controls (needed for damping)
+    renderer.render(scene, camera);
+}
+// Note: Removed the extra animate() call from here
+
+
+// 5. Handle Window Resize
+window.addEventListener('resize', () => {
+    // Update camera aspect ratio
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    // Update renderer size
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// --- Start the loop ---
+animate(); // Start the loop here, after everything is set up
+
+// Time slider control
+const timeSlider = document.getElementById('timeSlider');
+const timeValue = document.getElementById('timeValue');
+
+timeSlider.addEventListener('input', function() {
+    // Convert slider value (0-100) to a useful time scale (0-2)
+    timeScale = this.value / 50;
+    timeValue.textContent = `Current: ${timeScale.toFixed(2)}`;
+});
+
+    </script>
+</body>
+</html>
+
